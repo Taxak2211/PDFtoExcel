@@ -23,11 +23,9 @@ const App: React.FC = () => {
 
 
     useEffect(() => {
-        // Set the worker source for pdf.js - use local bundled worker
-        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-            'pdfjs-dist/build/pdf.worker.min.js',
-            import.meta.url
-        ).toString();
+        // Set the worker source for pdf.js
+        // For development and production, use CDN
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
     }, []);
 
     const convertPdfToImages = async (file: File, password?: string): Promise<string[]> => {
