@@ -25,7 +25,12 @@ const App: React.FC = () => {
     useEffect(() => {
         // Set the worker source for pdf.js
         // For development and production, use CDN
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+        if (pdfjsLib) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+            console.log('PDF.js worker configured:', pdfjsLib.GlobalWorkerOptions.workerSrc);
+        } else {
+            console.error('pdfjsLib not loaded!');
+        }
     }, []);
 
     const convertPdfToImages = async (file: File, password?: string): Promise<string[]> => {
@@ -72,12 +77,18 @@ const App: React.FC = () => {
 
                 } catch (err: any) {
                     console.error("Error processing PDF:", err);
+                    console.error("Error details:", {
+                        message: err.message,
+                        name: err.name,
+                        code: err.code,
+                        stack: err.stack
+                    });
                     
                     // Check if it's a password error
-                    if (err.message && err.message.includes('password')) {
+                    if (err.message && (err.message.includes('password') || err.code === 1)) {
                         reject(new Error("PDF_PASSWORD_REQUIRED"));
                     } else {
-                        reject(new Error("Could not process the PDF. It may be corrupted."));
+                        reject(new Error("Could not process the PDF. It may be corrupted or the file format is unsupported."));
                     }
                 }
             };
