@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import * as XLSX from 'xlsx';
 import { extractTransactionsFromImages } from './services/geminiService.ts';
 import { Transaction } from './types.ts';
 import { FileUpload } from './components/FileUpload.tsx';
@@ -7,9 +8,6 @@ import { ProcessingIndicator } from './components/ProcessingIndicator.tsx';
 import { Header } from './components/Header.tsx';
 import { PrivacyNotice } from './components/PrivacyNotice.tsx';
 import { DownloadArea } from './components/DownloadArea.tsx';
-
-// Make xlsx available from the window object
-declare const XLSX: any;
 
 interface ProcessedFile {
     blob: Blob;
@@ -25,10 +23,8 @@ const App: React.FC = () => {
 
 
     useEffect(() => {
-        // Set the worker source for pdf.js from node_modules
-        import('pdfjs-dist/build/pdf.worker.mjs').then((worker: any) => {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = worker.default;
-        });
+        // Set the worker source for pdf.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
     }, []);
 
     const convertPdfToImages = async (file: File, password?: string): Promise<string[]> => {
