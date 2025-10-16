@@ -1,0 +1,5 @@
+{
+  "name": "PDF Statement to Excel Converter",
+  "description": "An intelligent tool that securely converts your PDF bank statements into organized Excel files using AI. Your data is processed in your browser and is never stored.",
+  "requestFramePermissions": []
+}
