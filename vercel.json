@@ -1,7 +1,4 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "env": {
-    "VITE_GEMINI_API_KEY": "@vite_gemini_api_key"
-  }
+  "outputDirectory": "dist"
 }
