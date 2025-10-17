@@ -24,13 +24,15 @@ const App: React.FC = () => {
 
     useEffect(() => {
         // Set the worker source for pdf.js
-        // For development and production, use CDN
-        if (pdfjsLib) {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
-            console.log('PDF.js worker configured:', pdfjsLib.GlobalWorkerOptions.workerSrc);
-        } else {
-            console.error('pdfjsLib not loaded!');
-        }
+        // For pdfjs-dist v5, we need to use a proper worker setup
+        const workerSrc = new URL(
+            'pdfjs-dist/build/pdf.worker.min.mjs',
+            import.meta.url
+        ).href;
+        
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+        console.log('PDF.js version:', pdfjsLib.version);
+        console.log('PDF.js worker configured:', pdfjsLib.GlobalWorkerOptions.workerSrc);
     }, []);
 
     const convertPdfToImages = async (file: File, password?: string): Promise<string[]> => {
@@ -45,14 +47,27 @@ const App: React.FC = () => {
 
                 try {
                     const typedarray = new Uint8Array(event.target.result as ArrayBuffer);
-                    const pdfOptions: any = { data: typedarray };
+                    console.log('PDF file size:', typedarray.length, 'bytes');
+                    
+                    const pdfOptions: any = { 
+                        data: typedarray,
+                        verbosity: 0 // Suppress pdf.js warnings
+                    };
                     
                     // Add password if provided
                     if (password) {
                         pdfOptions.password = password;
                     }
                     
-                    const pdf = await pdfjsLib.getDocument(pdfOptions).promise;
+                    console.log('Loading PDF document...');
+                    const loadingTask = pdfjsLib.getDocument(pdfOptions);
+                    
+                    loadingTask.onProgress = (progress: any) => {
+                        console.log('PDF loading progress:', progress.loaded, '/', progress.total);
+                    };
+                    
+                    const pdf = await loadingTask.promise;
+                    console.log('PDF loaded successfully. Pages:', pdf.numPages);
                     const imagePromises: Promise<string>[] = [];
                     const canvas = document.createElement("canvas");
 
@@ -78,17 +93,23 @@ const App: React.FC = () => {
                 } catch (err: any) {
                     console.error("Error processing PDF:", err);
                     console.error("Error details:", {
-                        message: err.message,
-                        name: err.name,
-                        code: err.code,
-                        stack: err.stack
+                        message: err?.message,
+                        name: err?.name,
+                        code: err?.code,
+                        stack: err?.stack,
+                        toString: err?.toString?.()
                     });
                     
                     // Check if it's a password error
-                    if (err.message && (err.message.includes('password') || err.code === 1)) {
+                    if (err?.name === 'PasswordException' || err?.code === 1) {
                         reject(new Error("PDF_PASSWORD_REQUIRED"));
+                    } else if (err?.name === 'InvalidPDFException') {
+                        reject(new Error("Invalid PDF file. Please ensure the file is a valid PDF document."));
+                    } else if (err?.name === 'MissingPDFException') {
+                        reject(new Error("PDF file appears to be empty or corrupted."));
                     } else {
-                        reject(new Error("Could not process the PDF. It may be corrupted or the file format is unsupported."));
+                        const errorMsg = err?.message || err?.name || 'Unknown error';
+                        reject(new Error(`Could not process the PDF: ${errorMsg}`));
                     }
                 }
             };
