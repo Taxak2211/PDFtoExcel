@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Transaction } from '../types.ts';
 
 interface DownloadAreaProps {
@@ -23,6 +23,29 @@ const SuccessIcon = () => (
 
 export const DownloadArea: React.FC<DownloadAreaProps> = ({ fileBlob, fileName, transactions, onReset }) => {
     const [showPreview, setShowPreview] = useState(true);
+    const [targetOrigin, setTargetOrigin] = useState<string>('*');
+    const [isEmbedded, setIsEmbedded] = useState<boolean>(false);
+
+    // Detect embed mode and capture safe postMessage origin
+    useEffect(() => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const embedded = params.get('embed') === '1';
+            setIsEmbedded(embedded);
+            const originFromQuery = params.get('targetOrigin');
+            if (originFromQuery) setTargetOrigin(originFromQuery);
+
+            const onHandshake = (e: MessageEvent) => {
+                if (e?.data?.type === 'EXPENSO_PARENT_HANDSHAKE' && typeof (e as any).data.origin === 'string') {
+                    setTargetOrigin((e as any).data.origin);
+                }
+            };
+            window.addEventListener('message', onHandshake);
+            return () => window.removeEventListener('message', onHandshake);
+        } catch (e) {
+            // ignore
+        }
+    }, []);
     
     // Get all unique keys from all transactions to match Excel structure
     const getAllKeys = (): (keyof Transaction)[] => {
@@ -50,20 +73,37 @@ export const DownloadArea: React.FC<DownloadAreaProps> = ({ fileBlob, fileName, 
         URL.revokeObjectURL(url);
     };
 
-      const handleSendToExpenso = () => {
-    // Send transactions data back to parent window (Expenso app)
-    if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({
-        type: 'TRANSACTIONS_EXTRACTED',
-        transactions: transactions
-      }, '*') // Using '*' for any origin, but you can specify your domain like 'https://expenso.com'
-      
-      // Optionally close the popup after sending
-      setTimeout(() => window.close(), 500)
-    } else {
-      alert('Could not send data to parent window. Please ensure this was opened as a popup.')
-    }
-  };
+        const handleSendToExpenso = () => {
+                // Build payload
+                const payload = {
+                        type: 'TRANSACTIONS_EXTRACTED',
+                        transactions: transactions,
+                };
+
+                // Prefer popup (opener) if available
+                if (window.opener && !window.opener.closed) {
+                        try {
+                                window.opener.postMessage(payload, targetOrigin || '*');
+                                // Close only if we are actually in a popup
+                                setTimeout(() => { try { window.close(); } catch {} }, 500);
+                                return;
+                        } catch (e) {
+                                console.error('Failed to postMessage to opener:', e);
+                        }
+                }
+
+                // Fallback to iframe parent when embedded
+                if (window.parent && window.parent !== window) {
+                        try {
+                                window.parent.postMessage(payload, targetOrigin || '*');
+                                return;
+                        } catch (e) {
+                                console.error('Failed to postMessage to parent:', e);
+                        }
+                }
+
+                alert('Could not send data to parent window. Please open this as a popup or embed it.');
+        };
 
     return (
         <div className="flex flex-col gap-6">
