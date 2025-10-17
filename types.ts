@@ -5,6 +5,8 @@ export interface Transaction {
   debit?: number;
   credit?: number;
   balance?: number;
+  currency?: string; // ISO currency code like INR, USD, CAD
+  category?: string; // Classified category label
 }
 
 export interface RedactionRect {

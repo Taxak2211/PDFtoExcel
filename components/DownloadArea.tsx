@@ -47,17 +47,17 @@ export const DownloadArea: React.FC<DownloadAreaProps> = ({ fileBlob, fileName, 
         }
     }, []);
     
-    // Get all unique keys from all transactions to match Excel structure
+    // Compute columns in a fixed order but hide any column that has no values at all
     const getAllKeys = (): (keyof Transaction)[] => {
-        const keysSet = new Set<keyof Transaction>();
-        transactions.forEach(transaction => {
-            Object.keys(transaction).forEach(key => {
-                keysSet.add(key as keyof Transaction);
-            });
+        const order: (keyof Transaction)[] = ['date', 'description', 'category', 'currency', 'debit', 'credit', 'balance'];
+        const hasAnyValue = (key: keyof Transaction) => transactions.some(t => {
+            const v = t[key] as any;
+            if (v === null || v === undefined) return false;
+            if (typeof v === 'string') return v.trim().length > 0;
+            if (typeof v === 'number') return !Number.isNaN(v);
+            return true;
         });
-        // Return keys in a consistent order: date, description, debit, credit, balance
-        const order: (keyof Transaction)[] = ['date', 'description', 'debit', 'credit', 'balance'];
-        return order.filter(key => keysSet.has(key));
+        return order.filter(hasAnyValue);
     };
     
     const columnKeys = getAllKeys();

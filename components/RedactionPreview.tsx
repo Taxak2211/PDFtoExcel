@@ -11,11 +11,15 @@ interface RedactionPreviewProps {
 export const RedactionPreview: React.FC<RedactionPreviewProps> = ({ pages, onUpdate, onProceed, onCancel }) => {
     const deepCopy = (p: RedactionPage[]): RedactionPage[] => JSON.parse(JSON.stringify(p));
     const [activeTool, setActiveTool] = useState<'draw' | 'erase' | 'select'>('draw');
+    const [zoomOnly, setZoomOnly] = useState<boolean>(false);
     const [dragging, setDragging] = useState(false);
     const startRef = useRef<{x:number;y:number}|null>(null);
     const [selected, setSelected] = useState<{pageIdx:number; rectId:string|null}>({pageIdx:0, rectId:null});
     const [zoom, setZoom] = useState<number[]>(() => pages.map(()=>1));
     const [drawOverlay, setDrawOverlay] = useState<null | {pageIdx:number; x:number; y:number; width:number; height:number}>(null);
+    const containerRefs = useRef<Array<HTMLDivElement|null>>([]);
+    const pinchRef = useRef<null | { pageIdx:number; lastZoom:number; startDist:number; startZoom:number; startScrollLeft:number; startScrollTop:number }>(null);
+    const panRef = useRef<null | { pageIdx:number; startX:number; startY:number; startScrollLeft:number; startScrollTop:number }>(null);
 
     // Undo/Redo history
     const [history, setHistory] = useState<RedactionPage[][]>([deepCopy(pages)]);
@@ -352,6 +356,279 @@ export const RedactionPreview: React.FC<RedactionPreviewProps> = ({ pages, onUpd
         setDrawOverlay({ pageIdx, x, y, width: w, height: h });
     };
 
+    // --- Touch support for mobile ---
+    const handleCanvasTouchStart = (pageIdx: number, e: React.TouchEvent<HTMLCanvasElement>) => {
+        if (zoomOnly) { return; }
+        if (pinchRef.current) return; // ignore while pinching
+        if (!e.touches || e.touches.length === 0) return;
+        const touch = e.touches[0];
+        const canvas = e.currentTarget;
+        const rect = canvas.getBoundingClientRect();
+        const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
+        const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
+        e.preventDefault();
+        if (activeTool === 'erase') {
+            // Same logic as click-to-erase
+            const page = pages[pageIdx];
+            for (let i = page.rects.length - 1; i >= 0; i--) {
+                const r = page.rects[i];
+                if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
+                    const updated = deepCopy(pages);
+                    const newRects = [...page.rects];
+                    newRects.splice(i, 1);
+                    updated[pageIdx] = { ...page, rects: newRects };
+                    onUpdate(updated);
+                    pushHistory(updated);
+                    break;
+                }
+            }
+            return;
+        }
+        if (activeTool === 'select') {
+            // mimic select mousedown
+            const page = pages[pageIdx];
+            for (let i = page.rects.length - 1; i >= 0; i--) {
+                const r = page.rects[i];
+                const corner = hitTestCorner(r, x, y);
+                if (corner) {
+                    setSelected({ pageIdx, rectId: r.id });
+                    dragState.current = { action: 'resize', pageIdx, rectId: r.id, startX: x, startY: y, orig: { ...r }, corner, snapshot: deepCopy(pages) };
+                    return;
+                }
+                if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
+                    setSelected({ pageIdx, rectId: r.id });
+                    dragState.current = { action: 'move', pageIdx, rectId: r.id, startX: x, startY: y, orig: { ...r }, snapshot: deepCopy(pages) } as any;
+                    return;
+                }
+            }
+            setSelected({ pageIdx, rectId: null });
+            return;
+        }
+        // draw start
+        startRef.current = { x, y };
+        setDragging(true);
+        setDrawOverlay({ pageIdx, x, y, width: 0, height: 0 });
+    };
+
+    const handleCanvasTouchMove = (pageIdx: number, e: React.TouchEvent<HTMLCanvasElement>) => {
+        if (zoomOnly) { return; }
+        if (pinchRef.current) return; // ignore while pinching
+        if (!e.touches || e.touches.length === 0) return;
+        const touch = e.touches[0];
+        const canvas = e.currentTarget;
+        const rect = canvas.getBoundingClientRect();
+        const x = (touch.clientX - rect.left) * (canvas.width / rect.width);
+        const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
+        e.preventDefault();
+        if (activeTool === 'draw' && dragging && startRef.current) {
+            const x2 = x;
+            const y2 = y;
+            const sx = startRef.current.x;
+            const sy = startRef.current.y;
+            const nx = Math.min(sx, x2);
+            const ny = Math.min(sy, y2);
+            const w = Math.abs(x2 - sx);
+            const h = Math.abs(y2 - sy);
+            setDrawOverlay({ pageIdx, x: nx, y: ny, width: w, height: h });
+            return;
+        }
+        if (activeTool === 'select' && dragState.current) {
+            const ds = dragState.current;
+            const dx = x - ds.startX;
+            const dy = y - ds.startY;
+            const pagesCopy = deepCopy(pages);
+            const page = pagesCopy[ds.pageIdx];
+            const idx = page.rects.findIndex(r => r.id === ds.rectId);
+            if (idx === -1) return;
+            let r = { ...page.rects[idx] };
+            if (ds.action === 'move') {
+                r.x = ds.orig.x + dx;
+                r.y = ds.orig.y + dy;
+            } else {
+                const corner = ds.corner!;
+                if (corner === 'nw') {
+                    const newX = ds.orig.x + dx;
+                    const newY = ds.orig.y + dy;
+                    r.width = ds.orig.width + (ds.orig.x - newX);
+                    r.height = ds.orig.height + (ds.orig.y - newY);
+                    r.x = newX;
+                    r.y = newY;
+                } else if (corner === 'ne') {
+                    const newY = ds.orig.y + dy;
+                    r.width = ds.orig.width + dx;
+                    r.height = ds.orig.height + (ds.orig.y - newY);
+                    r.y = newY;
+                } else if (corner === 'sw') {
+                    const newX = ds.orig.x + dx;
+                    r.width = ds.orig.width + (ds.orig.x - newX);
+                    r.height = ds.orig.height + dy;
+                    r.x = newX;
+                } else if (corner === 'se') {
+                    r.width = ds.orig.width + dx;
+                    r.height = ds.orig.height + dy;
+                }
+                if (r.width < 0) { r.x = r.x + r.width; r.width = Math.abs(r.width); }
+                if (r.height < 0) { r.y = r.y + r.height; r.height = Math.abs(r.height); }
+                r.width = Math.max(4, r.width);
+                r.height = Math.max(4, r.height);
+            }
+            page.rects[idx] = r;
+            onUpdate(pagesCopy);
+            ds.lastPages = pagesCopy;
+            return;
+        }
+    };
+
+    const handleCanvasTouchEnd = (pageIdx: number, e: React.TouchEvent<HTMLCanvasElement>) => {
+        if (zoomOnly) { return; }
+        if (pinchRef.current) return; // ignore while pinching
+        e.preventDefault();
+        if (activeTool === 'select') {
+            if (dragState.current) {
+                const ds = dragState.current;
+                const snapshot = ds.lastPages ? deepCopy(ds.lastPages) : deepCopy(pages);
+                pushHistory(snapshot);
+                dragState.current = null;
+            }
+            return;
+        }
+        if (!dragging || activeTool !== 'draw' || !startRef.current) return;
+        const canvas = e.currentTarget;
+        const rect = canvas.getBoundingClientRect();
+        // Use changedTouches for end
+        const touch = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : (e.touches[0] || null);
+        if (!touch) return;
+        const x2 = (touch.clientX - rect.left) * (canvas.width / rect.width);
+        const y2 = (touch.clientY - rect.top) * (canvas.height / rect.height);
+        const x = Math.min(startRef.current.x, x2);
+        const y = Math.min(startRef.current.y, y2);
+        const w = Math.abs(x2 - startRef.current.x);
+        const h = Math.abs(y2 - startRef.current.y);
+        startRef.current = null;
+        setDragging(false);
+        setDrawOverlay(null);
+        if (w < 4 || h < 4) return;
+        const updated = deepCopy(pages);
+        const newRect: RedactionRect = { id: `${pageIdx}-${Date.now()}-${Math.random()}`, x, y, width: w, height: h, source: 'manual' };
+        updated[pageIdx] = { ...updated[pageIdx], rects: [...updated[pageIdx].rects, newRect] };
+        onUpdate(updated);
+        pushHistory(updated);
+    };
+
+    const handleCanvasTouchCancel = (pageIdx: number) => {
+        if (zoomOnly) { return; }
+        if (pinchRef.current) return; // ignore while pinching
+        if (dragState.current) {
+            const ds = dragState.current;
+            const snapshot = ds.lastPages ? deepCopy(ds.lastPages) : deepCopy(pages);
+            pushHistory(snapshot);
+            dragState.current = null;
+        }
+        if (dragging && activeTool === 'draw') {
+            setDrawOverlay(null);
+            setDragging(false);
+            startRef.current = null;
+        }
+    };
+
+    // Pinch zoom on the scroll container (two fingers) keeps focal under fingers
+    const handleContainerTouchStart = (pageIdx:number, e: React.TouchEvent<HTMLDivElement>) => {
+        if (e.touches.length === 2) {
+            const [t1, t2] = [e.touches[0], e.touches[1]];
+            const dx = t2.clientX - t1.clientX;
+            const dy = t2.clientY - t1.clientY;
+            const dist = Math.hypot(dx, dy);
+            pinchRef.current = {
+                pageIdx,
+                lastZoom: zoom[pageIdx] || 1,
+                startDist: dist,
+                startZoom: zoom[pageIdx] || 1,
+                startScrollLeft: containerRefs.current[pageIdx]?.scrollLeft || 0,
+                startScrollTop: containerRefs.current[pageIdx]?.scrollTop || 0,
+            };
+            e.preventDefault();
+            // cancel any draw/select gesture if starting a pinch
+            if (dragging) { setDragging(false); setDrawOverlay(null); startRef.current = null; }
+            dragState.current = null;
+            return;
+        }
+        // In zoom-only mode, start one-finger panning on container
+        if (zoomOnly && e.touches.length === 1) {
+            const t = e.touches[0];
+            const container = containerRefs.current[pageIdx];
+            if (!container) return;
+            panRef.current = {
+                pageIdx,
+                startX: t.clientX,
+                startY: t.clientY,
+                startScrollLeft: container.scrollLeft,
+                startScrollTop: container.scrollTop,
+            };
+            e.preventDefault();
+            // Ensure any drawing is canceled
+            if (dragging) { setDragging(false); setDrawOverlay(null); startRef.current = null; }
+            dragState.current = null;
+        }
+    };
+
+    const handleContainerTouchMove = (pageIdx:number, e: React.TouchEvent<HTMLDivElement>) => {
+        const pr = pinchRef.current;
+        const container = containerRefs.current[pageIdx];
+        if (!container) return;
+        // Handle pinch-to-zoom when two fingers active
+        if (pr && pr.pageIdx === pageIdx && e.touches.length >= 2) {
+            const [t1, t2] = [e.touches[0], e.touches[1]];
+            const rect = container.getBoundingClientRect();
+            const midX = ((t1.clientX + t2.clientX) / 2) - rect.left;
+            const midY = ((t1.clientY + t2.clientY) / 2) - rect.top;
+            const dx = t2.clientX - t1.clientX;
+            const dy = t2.clientY - t1.clientY;
+            const dist = Math.hypot(dx, dy);
+        const factor = dist / pr.startDist;
+        const newZoom = Math.max(0.1, Math.min(3, pr.startZoom * factor));
+            // compute content coordinate under current midpoint using lastZoom
+            const contentX = (container.scrollLeft + midX) / pr.lastZoom;
+            const contentY = (container.scrollTop + midY) / pr.lastZoom;
+            // update zoom state
+            setZoom(prev => {
+                const arr = [...prev];
+                arr[pageIdx] = newZoom;
+                return arr;
+            });
+            // after zoom change, aim to keep same content point under the fingers
+            const desiredScrollLeft = contentX * newZoom - midX;
+            const desiredScrollTop = contentY * newZoom - midY;
+            // clamp
+            const maxScrollLeft = Math.max(0, (container.scrollWidth - container.clientWidth));
+            const maxScrollTop = Math.max(0, (container.scrollHeight - container.clientHeight));
+            container.scrollLeft = Math.max(0, Math.min(desiredScrollLeft, maxScrollLeft));
+            container.scrollTop = Math.max(0, Math.min(desiredScrollTop, maxScrollTop));
+            pinchRef.current = { ...pr, lastZoom: newZoom };
+            e.preventDefault();
+            return;
+        }
+        // Handle one-finger pan when zoomOnly
+        const pan = panRef.current;
+        if (zoomOnly && pan && pan.pageIdx === pageIdx && e.touches.length === 1) {
+            const t = e.touches[0];
+            const dx = t.clientX - pan.startX;
+            const dy = t.clientY - pan.startY;
+            container.scrollLeft = pan.startScrollLeft - dx;
+            container.scrollTop = pan.startScrollTop - dy;
+            e.preventDefault();
+            return;
+        }
+    };
+
+    const handleContainerTouchEnd = (pageIdx:number, e: React.TouchEvent<HTMLDivElement>) => {
+        if (pinchRef.current && e.touches.length < 2) {
+            pinchRef.current = null;
+        }
+        if (panRef.current && e.touches.length < 1) {
+            panRef.current = null;
+        }
+    };
+
     const handleClearPage = (pageIdx: number) => {
         const updated = deepCopy(pages);
         updated[pageIdx] = { ...updated[pageIdx], rects: [] };
@@ -372,10 +649,41 @@ export const RedactionPreview: React.FC<RedactionPreviewProps> = ({ pages, onUpd
                     You are editing the converted images (rendered from your PDF). When you click Proceed, the current boxes are baked into those images and only then sent to AI.
                 </p>
                 <div className="flex flex-wrap items-center gap-3 mb-4">
+                    <button
+                        onClick={() => {
+                            setZoomOnly(z => {
+                                const next = !z;
+                                // cancel any ongoing interactions when toggling
+                                if (next) {
+                                    if (dragState.current) dragState.current = null;
+                                    if (dragging) { setDragging(false); setDrawOverlay(null); startRef.current = null; }
+                                }
+                                return next;
+                            });
+                        }}
+                        className={`px-3 py-1 rounded border ${zoomOnly ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}`}
+                        title="Zoom and pan only; disable drawing and selection"
+                    >
+                        Zoom Only
+                    </button>
                     <span className="text-sm text-gray-700">Tool:</span>
                     <button onClick={() => setActiveTool('draw')} className={`px-3 py-1 rounded border ${activeTool==='draw'?'bg-blue-600 text-white border-blue-600':'bg-white text-gray-700 border-gray-300'}`}>Draw</button>
                     <button onClick={() => setActiveTool('erase')} className={`px-3 py-1 rounded border ${activeTool==='erase'?'bg-blue-600 text-white border-blue-600':'bg-white text-gray-700 border-gray-300'}`}>Erase</button>
                     <button onClick={() => setActiveTool('select')} className={`px-3 py-1 rounded border ${activeTool==='select'?'bg-blue-600 text-white border-blue-600':'bg-white text-gray-700 border-gray-300'}`}>Select/Move</button>
+                    <button
+                        onClick={() => {
+                            if (confirm('Erase all boxes on all pages? This can be undone with Undo.')) {
+                                const cleared = pages.map(p => ({ ...p, rects: [] as RedactionRect[] }));
+                                onUpdate(cleared);
+                                pushHistory(cleared);
+                                setSelected({ pageIdx: 0, rectId: null });
+                            }
+                        }}
+                        className="px-3 py-1 rounded border bg-white text-red-700 border-red-300 hover:bg-red-50"
+                        title="Remove all boxes across all pages"
+                    >
+                        Erase All Boxes
+                    </button>
                     <span className="ml-auto flex items-center gap-2">
                         <button disabled={!canUndo} onClick={undo} className={`px-3 py-1 rounded border ${canUndo?'bg-white hover:bg-gray-100':'bg-gray-100 text-gray-400'} border-gray-300`}>Undo</button>
                         <button disabled={!canRedo} onClick={redo} className={`px-3 py-1 rounded border ${canRedo?'bg-white hover:bg-gray-100':'bg-gray-100 text-gray-400'} border-gray-300`}>Redo</button>
@@ -388,22 +696,47 @@ export const RedactionPreview: React.FC<RedactionPreviewProps> = ({ pages, onUpd
                         {pages.map((page, idx) => (
                             <div key={idx} className="border border-gray-300 rounded-lg overflow-hidden bg-white">
                                 <div className="bg-gray-100 px-3 py-2 border-b border-gray-300">
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between flex-wrap gap-2">
                                         <span className="text-sm font-semibold text-gray-700">Page {idx + 1}</span>
-                                        <div className="flex items-center gap-3">
+                                        <div className="hidden sm:flex items-center gap-3">
                                             <label className="text-xs text-gray-600">Zoom</label>
-                                            <input type="range" min={50} max={200} value={Math.round((zoom[idx]||1)*100)} onChange={(e)=>{
-                                                const z = Math.max(0.5, Math.min(2, Number(e.target.value)/100));
+                                            <input type="range" min={10} max={300} value={Math.round((zoom[idx]||1)*100)} onChange={(e)=>{
+                                                const z = Math.max(0.1, Math.min(3, Number(e.target.value)/100));
                                                 const arr = [...zoom];
                                                 arr[idx] = z; setZoom(arr);
                                             }} />
-                                            <button onClick={()=>handleClearPage(idx)} className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-100">Clear page boxes</button>
+                                            <button onClick={()=>handleClearPage(idx)} className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-100 hidden sm:inline-flex">Clear page boxes</button>
                                         </div>
                                     </div>
                                 </div>
                                 <div className="p-2">
-                                    <div className="relative" style={{transform:`scale(${zoom[idx]||1})`, transformOrigin: 'top left'}}>
-                                        <CanvasWithRects page={page} cursor={activeTool==='draw' ? 'crosshair' : activeTool==='select' ? 'default' : 'pointer'} onRedraw={(c)=>drawPage(c, page, selected.pageIdx===idx?selected.rectId||undefined:undefined, (drawOverlay && drawOverlay.pageIdx===idx) ? {x:drawOverlay.x,y:drawOverlay.y,width:drawOverlay.width,height:drawOverlay.height}: undefined)} onMouseDown={(e)=>handleCanvasMouseDown(idx,e)} onMouseUp={(e)=>handleCanvasMouseUp(idx,e)} onMouseMove={(e)=>{ handleMouseMove(idx,e); handleHoverMove(idx,e); if (activeTool==='draw') handleDrawMouseMove(idx,e); }} onMouseLeave={()=>handleCanvasMouseLeave(idx)} />
+                                    <div 
+                                        className="relative overflow-auto max-w-full"
+                                        ref={(el)=>{ containerRefs.current[idx] = el; }}
+                                        onTouchStart={(e)=>handleContainerTouchStart(idx, e)}
+                                        onTouchMove={(e)=>handleContainerTouchMove(idx, e)}
+                                        onTouchEnd={(e)=>handleContainerTouchEnd(idx, e)}
+                                        onTouchCancel={(e)=>handleContainerTouchEnd(idx, e)}
+                                        style={{ touchAction: 'none' }}
+                                    >
+                                        <CanvasWithRects
+                                            page={page}
+                                            cursor={zoomOnly ? 'zoom-in' : (activeTool==='draw' ? 'crosshair' : activeTool==='select' ? 'default' : 'pointer')}
+                                            zoom={zoom[idx]||1}
+                                            onRedraw={(c)=>drawPage(c, page, selected.pageIdx===idx?selected.rectId||undefined:undefined, (drawOverlay && drawOverlay.pageIdx===idx) ? {x:drawOverlay.x,y:drawOverlay.y,width:drawOverlay.width,height:drawOverlay.height}: undefined)}
+                                            onMouseDown={zoomOnly ? undefined as any : (e)=>handleCanvasMouseDown(idx,e)}
+                                            onMouseUp={zoomOnly ? undefined as any : (e)=>handleCanvasMouseUp(idx,e)}
+                                            onMouseMove={zoomOnly ? undefined as any : (e)=>{ handleMouseMove(idx,e); handleHoverMove(idx,e); if (activeTool==='draw') handleDrawMouseMove(idx,e); }}
+                                            onMouseLeave={zoomOnly ? undefined as any : ()=>handleCanvasMouseLeave(idx)}
+                                            onTouchStart={zoomOnly ? undefined as any : (e)=>handleCanvasTouchStart(idx, e)}
+                                            onTouchMove={zoomOnly ? undefined as any : (e)=>handleCanvasTouchMove(idx, e)}
+                                            onTouchEnd={zoomOnly ? undefined as any : (e)=>handleCanvasTouchEnd(idx, e)}
+                                            onTouchCancel={zoomOnly ? undefined as any : ()=>handleCanvasTouchCancel(idx)}
+                                        />
+                                    </div>
+                                    {/* Mobile clear button */}
+                                    <div className="mt-2 sm:hidden">
+                                        <button onClick={()=>handleClearPage(idx)} className="w-full px-2 py-2 text-xs border rounded bg-white hover:bg-gray-100">Clear page boxes</button>
                                     </div>
                                     {/* Rect list for erasing */}
                                     {activeTool==='erase' && (
@@ -448,11 +781,51 @@ export const RedactionPreview: React.FC<RedactionPreviewProps> = ({ pages, onUpd
     );
 };
 
-const CanvasWithRects: React.FC<{ page: RedactionPage; cursor?: string; onRedraw: (canvas: HTMLCanvasElement)=>void; onMouseDown: (e: React.MouseEvent<HTMLCanvasElement>)=>void; onMouseUp: (e: React.MouseEvent<HTMLCanvasElement>)=>void; onMouseMove?: (e: React.MouseEvent<HTMLCanvasElement>)=>void; onMouseLeave?: ()=>void; }>
-    = ({ page, cursor, onRedraw, onMouseDown, onMouseUp, onMouseMove, onMouseLeave }) => {
+const CanvasWithRects: React.FC<{ 
+    page: RedactionPage; 
+    cursor?: string; 
+    zoom?: number;
+    onRedraw: (canvas: HTMLCanvasElement)=>void; 
+    onMouseDown: (e: React.MouseEvent<HTMLCanvasElement>)=>void; 
+    onMouseUp: (e: React.MouseEvent<HTMLCanvasElement>)=>void; 
+    onMouseMove?: (e: React.MouseEvent<HTMLCanvasElement>)=>void; 
+    onMouseLeave?: ()=>void;
+    onTouchStart?: (e: React.TouchEvent<HTMLCanvasElement>)=>void;
+    onTouchMove?: (e: React.TouchEvent<HTMLCanvasElement>)=>void;
+    onTouchEnd?: (e: React.TouchEvent<HTMLCanvasElement>)=>void;
+    onTouchCancel?: ()=>void;
+}>
+    = ({ page, cursor, zoom, onRedraw, onMouseDown, onMouseUp, onMouseMove, onMouseLeave, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel }) => {
     const ref = useRef<HTMLCanvasElement|null>(null);
     useEffect(() => {
         if (ref.current) onRedraw(ref.current);
     }, [page.baseImage, page.rects]);
-    return <canvas ref={ref} className="w-full h-auto" style={{cursor: cursor||'crosshair'}} onMouseDown={onMouseDown} onMouseUp={onMouseUp} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave} />
+    useEffect(() => {
+        if (!ref.current) return;
+        const c = ref.current;
+        const applySize = () => {
+            const z = zoom || 1;
+            if (c.width && c.height) {
+                c.style.width = `${Math.round(c.width * z)}px`;
+                c.style.height = `${Math.round(c.height * z)}px`;
+            }
+        };
+        // Apply immediately and on next frame to catch after image draw sets intrinsic size
+        applySize();
+        const id = requestAnimationFrame(applySize);
+        return () => cancelAnimationFrame(id);
+    }, [zoom, page.baseImage]);
+    return <canvas 
+        ref={ref} 
+        className="w-full h-auto" 
+        style={{cursor: cursor||'crosshair', touchAction: 'none'}} 
+        onMouseDown={onMouseDown} 
+        onMouseUp={onMouseUp} 
+        onMouseMove={onMouseMove} 
+        onMouseLeave={onMouseLeave}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
+    />
 }
