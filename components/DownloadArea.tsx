@@ -50,6 +50,21 @@ export const DownloadArea: React.FC<DownloadAreaProps> = ({ fileBlob, fileName, 
         URL.revokeObjectURL(url);
     };
 
+      const handleSendToExpenso = () => {
+    // Send transactions data back to parent window (Expenso app)
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({
+        type: 'TRANSACTIONS_EXTRACTED',
+        transactions: transactions
+      }, '*') // Using '*' for any origin, but you can specify your domain like 'https://expenso.com'
+      
+      // Optionally close the popup after sending
+      setTimeout(() => window.close(), 500)
+    } else {
+      alert('Could not send data to parent window. Please ensure this was opened as a popup.')
+    }
+  };
+
     return (
         <div className="flex flex-col gap-6">
             {/* Success Message */}
@@ -124,7 +139,7 @@ export const DownloadArea: React.FC<DownloadAreaProps> = ({ fileBlob, fileName, 
                 </div>
             )}
 
-            {/* Download & Reset Buttons */}
+                        {/* Download & Reset Buttons */}
             <div className="flex flex-col sm:flex-row gap-4">
                 <button
                     onClick={handleDownload}
@@ -132,6 +147,12 @@ export const DownloadArea: React.FC<DownloadAreaProps> = ({ fileBlob, fileName, 
                 >
                     <DownloadIcon />
                     Download Excel
+                </button>
+                <button
+                    onClick={handleSendToExpenso}
+                    className="flex-1 flex items-center justify-center w-full px-4 py-3 font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-200"
+                >
+                    Import to Expenso
                 </button>
                 <button
                     onClick={onReset}
