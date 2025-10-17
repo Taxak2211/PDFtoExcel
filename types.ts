@@ -6,3 +6,17 @@ export interface Transaction {
   credit?: number;
   balance?: number;
 }
+
+export interface RedactionRect {
+  id: string; // unique id for UI selection
+  x: number; // image-space coordinates
+  y: number;
+  width: number;
+  height: number;
+  source: 'auto' | 'manual';
+}
+
+export interface RedactionPage {
+  baseImage: string; // data URL without masks applied
+  rects: RedactionRect[]; // redaction rectangles to apply
+}

@@ -12,7 +12,7 @@ export const PrivacyNotice: React.FC = () => {
         <div className="mt-6 flex items-center justify-center p-3 bg-green-50 border border-green-200 rounded-lg">
             <PrivacyIcon />
             <p className="text-sm text-green-800">
-                <span className="font-semibold">Your privacy is protected.</span> All processing happens in your browser. Your files are never uploaded or stored.
+                <span className="font-semibold">Privacy-First Processing.</span> Sensitive data (account numbers, personal details) is automatically redacted with black boxes before sending to AI. You'll review a preview before proceeding.
             </p>
         </div>
     );
