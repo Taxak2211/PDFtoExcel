@@ -757,10 +757,7 @@ export const RedactionPreview: React.FC<RedactionPreviewProps> = ({ pages, onUpd
                 {/* Action buttons */}
                 <div className="mt-6 flex flex-col sm:flex-row gap-4">
                     <button
-                        onClick={() => {
-                            console.log('[DEBUG] onProceed button clicked in RedactionPreview', new Error().stack);
-                            onProceed();
-                        }}
+                        onClick={onProceed}
                         className="flex-1 flex items-center justify-center px-6 py-3 font-semibold text-white bg-primary rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-colors duration-200"
                     >
                         ✓ Looks Good - Proceed with AI Extraction

@@ -430,7 +430,6 @@ const App: React.FC = () => {
     };
 
     const handleRedactionProceed = useCallback(async () => {
-        console.log('[DEBUG] handleRedactionProceed called in App.tsx', new Error().stack);
         setIsProcessing(true);
         setShowRedactionPreview(false);
         setProcessingStep('Analyzing statement with AI...');
