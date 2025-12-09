@@ -56,7 +56,7 @@ export const extractTransactionsFromImages = async (base64Images: string[]): Pro
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model: 'gemini-2.5-flash',
             contents: { parts: [textPart, ...imageParts] },
             config: {
                 responseMimeType: "application/json",
