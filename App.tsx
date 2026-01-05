@@ -145,30 +145,75 @@ const App: React.FC = () => {
                             if (!placed) lines.push([it]);
                         });
 
+                        // ============ ENHANCED AUTO-DETECTION PATTERNS ============
                         // Sort items in each line and search for sensitive patterns across concatenated text
-                        const cardRegex = /(?:\d[\s\-\*+]?){13,19}/g; // flexible digits with separators
-                        const acctRegex = /\b\d{9,18}\b/g; // accounts
-                        const ifscRegex = /\b[A-Z]{4}0[A-Z0-9]{6}\b/gi;
-                        const panRegex = /\b[A-Z]{5}\d{4}[A-Z]\b/gi;
-                        const postalScanRegex = /\b(?:\d{6}|\d{5}(?:-\d{4})?|[A-Z]\d[A-Z]\s?\d[A-Z]\d)\b/gi; // IN/US/CA
-                        const postalTestRegex = /\b(?:\d{6}|\d{5}(?:-\d{4})?|[A-Z]\d[A-Z]\s?\d[A-Z]\d)\b/i;
-                        const labelValueRegex = /\b(Name|Account\s*Holder|Cardholder|Billing\s*Name|Customer\s*Name|Customer\s*ID|Customer\s*No\.?|Customer\s*Number|Client\s*ID|Client\s*Number|CIF|CRN|Address|Billing\s*Address|Mailing\s*Address|Residence|City|State|Province|Country|Postal\s*Code|ZIP|PIN|Pincode|Postcode)\b[:\s\-]*([A-Za-z0-9][A-Za-z0-9\s.'\-\/,#]*)/gi;
-                        const excludeBankWords = /(\bRBC\b|\bROYAL\b|\bBANK\b|\bVISA\b|\bMASTERCARD\b|\bCREDIT\b|\bCARD\b|\bSTATEMENT\b|\bION\b)/i;
-                        const labelTokens = /(Card|Visa|Mastercard|Account|Acc\.?|A\/C|Acct\.?|Client|Customer|CIF|CRN|IBAN|Account\s*No\.?|Acct\s*No\.?|ending|xxxx|masked)/i;
-                        const tableHeaderTokens = /(Date|Posting\s*Date|Value\s*Date|Description|Narration|Transaction|Type|Debit|Credit|Amount|Balance|Ref\.?|Chq\.?|Cheque)/i;
-                        const transactionTokens = /(UPI|IMPS|NEFT|RTGS|ACH|NACH|ATM|POS|PURCHASE|WITHDRAWAL|DEPOSIT|INTEREST|FEE|CHARGE|PAYMENT|TRANSFER|TXN|TRN|AUTH|POSTED|SETTLED)/i;
+                        
+                        // Card numbers - more flexible for masked/partial cards
+                        const cardRegex = /(?:\d[\s\-\*xX+]?){13,19}/g; // flexible digits with separators including x/X for masked
+                        const maskedCardRegex = /(?:\*{4}|\d{4})[\s\-]?(?:\*{4}|\d{4})[\s\-]?(?:\*{4}|\d{4})[\s\-]?(?:\*{4}|\d{4})/gi; // explicit masked card format
+                        const partialCardRegex = /(?:ending\s*(?:in\s*)?|last\s*(?:4|four)\s*(?:digits?)?\s*[:\s]?|x{4,}\s*)(\d{4})/gi; // "ending in 1234"
+                        
+                        // Account numbers - more patterns for international banks
+                        const acctRegex = /\b\d{8,18}\b/g; // accounts (lowered min to 8 for some banks)
+                        const ibanRegex = /\b[A-Z]{2}\d{2}[\sA-Z0-9]{11,30}\b/gi; // IBAN format
+                        const sortCodeRegex = /\b\d{2}[\s\-]?\d{2}[\s\-]?\d{2}\b/g; // UK sort codes
+                        const bsbRegex = /\b\d{3}[\s\-]?\d{3}\b/g; // Australian BSB
+                        const routingRegex = /\b\d{9}\b/g; // US routing numbers (9 digits)
+                        
+                        // ID numbers
+                        const ifscRegex = /\b[A-Z]{4}0[A-Z0-9]{6}\b/gi; // Indian IFSC
+                        const panRegex = /\b[A-Z]{5}\d{4}[A-Z]\b/gi; // Indian PAN
+                        const aadharRegex = /\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b/g; // Indian Aadhaar
+                        const sinRegex = /\b\d{3}[\s\-]?\d{3}[\s\-]?\d{3}\b/g; // Canadian SIN
+                        const ssnRegex = /\b\d{3}[\s\-]?\d{2}[\s\-]?\d{4}\b/g; // US SSN
+                        const ninRegex = /\b[A-Z]{2}\d{6}[A-Z]?\b/gi; // UK NIN
+                        
+                        // Postal codes - expanded
+                        const postalScanRegex = /\b(?:\d{6}|\d{5}(?:-\d{4})?|[A-Z]\d[A-Z]\s?\d[A-Z]\d|[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2})\b/gi; // IN/US/CA/UK
+                        const postalTestRegex = /\b(?:\d{6}|\d{5}(?:-\d{4})?|[A-Z]\d[A-Z]\s?\d[A-Z]\d|[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2})\b/i;
+                        
+                        // Phone numbers - international formats
+                        const phoneRegex = /(?:\+?\d{1,3}[\s\-]?)?(?:\(?\d{2,4}\)?[\s\-]?)?\d{3,4}[\s\-]?\d{3,4}/g;
+                        const phoneTestRegex = /(?:phone|mobile|cell|tel|contact|fax)[:\s]*(?:\+?\d[\d\s\-\(\)]{8,})/i;
+                        
+                        // Email addresses
+                        const emailRegex = /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/gi;
+                        
+                        // Enhanced label-value patterns
+                        const labelValueRegex = /\b(Name|Full\s*Name|Account\s*Holder|Cardholder|Card\s*Holder|Billing\s*Name|Customer\s*Name|Customer\s*ID|Customer\s*No\.?|Customer\s*Number|Client\s*ID|Client\s*Name|Client\s*Number|CIF|CRN|URN|Member\s*ID|Member\s*No\.?|User\s*ID|Login\s*ID|Address|Billing\s*Address|Mailing\s*Address|Residence|Home\s*Address|Correspondence\s*Address|City|State|Province|Country|Postal\s*Code|ZIP\s*Code|ZIP|PIN|Pincode|Postcode|Date\s*of\s*Birth|DOB|Birth\s*Date|Phone|Mobile|Cell|Contact|Telephone|Tel|Email|E-mail|Email\s*ID|Email\s*Address|PAN|Aadhaar|SSN|SIN|NIN|Tax\s*ID|Passport|License|Licence|DL\s*No\.?|Branch|IFSC|MICR|Swift|BIC|Sort\s*Code|BSB|Routing)\b[:\s\-]*([A-Za-z0-9][A-Za-z0-9\s.@'\-\/,#]*)/gi;
+                        
+                        // Specific value after label patterns
+                        const phoneAfterLabelRegex = /\b(?:phone|mobile|cell|tel|contact)[:\s\-]*(\+?[\d\s\-\(\)]{8,})/gi;
+                        const emailAfterLabelRegex = /\b(?:email|e-mail)[:\s\-]*([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/gi;
+                        const dobAfterLabelRegex = /\b(?:DOB|Date\s*of\s*Birth|Birth\s*Date)[:\s\-]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{1,2}\s+[A-Za-z]{3,}\s+\d{2,4})/gi;
+                        
+                        const excludeBankWords = /(\bRBC\b|\bROYAL\b|\bBANK\b|\bVISA\b|\bMASTERCARD\b|\bCREDIT\b|\bCARD\b|\bSTATEMENT\b|\bION\b|\bSERVICE\b|\bCHARGE\b|\bPAYMENT\b|\bSAVINGS\b|\bCHEQUING\b|\bCHECKING\b|\bDEPOSIT\b|\bWITHDRAWAL\b|\bTRANSFER\b|\bBALANCE\b)/i;
+                        const labelTokens = /(Card|Visa|Mastercard|Amex|American\s*Express|Account|Acc\.?|A\/C|Acct\.?|Client|Customer|CIF|CRN|IBAN|Account\s*No\.?|Acct\s*No\.?|ending|xxxx|masked|last\s*4)/i;
+                        const tableHeaderTokens = /(Date|Posting\s*Date|Value\s*Date|Transaction\s*Date|Description|Narration|Particulars|Transaction|Type|Debit|Credit|Amount|Balance|Ref\.?|Reference|Chq\.?|Cheque|Check)/i;
+                        const transactionTokens = /(UPI|IMPS|NEFT|RTGS|ACH|NACH|ATM|POS|PURCHASE|WITHDRAWAL|DEPOSIT|INTEREST|FEE|CHARGE|PAYMENT|TRANSFER|TXN|TRN|AUTH|POSTED|SETTLED|PENDING|CLEARED|REFUND|CASHBACK)/i;
                         const dateAnywhereRegex = /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{1,2}\s+[A-Za-z]{3}\s+\d{2,4}|[A-Za-z]{3}\s+\d{1,2},?\s+\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})\b/;
-                        const moneyRegex = /(?:INR|Rs\.?|CAD|USD|EUR|GBP|\$|₹)?\s?-?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\s?(?:CR|DR)?/i;
+                        const moneyRegex = /(?:INR|Rs\.?|CAD|USD|EUR|GBP|AUD|NZD|\$|₹|£|€|¥)?\s?-?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\s?(?:CR|DR)?/i;
 
-                        // Helpers for address/name heuristics
-                        const provinceAbbr = /(AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT|AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b/; // CA/US
-                        const provinceNames = /(Ontario|Quebec|Alberta|British\s*Columbia|Manitoba|Saskatchewan|Nova\s*Scotia|New\s*Brunswick|Prince\s*Edward\s*Island|Newfoundland|Labrador|Yukon|Nunavut|Northwest\s*Territories)/i;
-                        const addressTokens = /(Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Boulevard|Blvd\.?|Court|Ct\.?|Suite|Ste\.?|Apt\.?|Apartment|Unit|#\s*\d+)/i;
-                        const countryTokens = /(India|Canada|United\s*States|USA|U\.S\.A\.|United\s*Kingdom|UK)/i;
+                        // Helpers for address/name heuristics - expanded
+                        const provinceAbbr = /(AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT|AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|ACT|NSW|VIC|QLD|TAS|SA|WA)\b/; // CA/US/AU
+                        const provinceNames = /(Ontario|Quebec|Alberta|British\s*Columbia|Manitoba|Saskatchewan|Nova\s*Scotia|New\s*Brunswick|Prince\s*Edward\s*Island|Newfoundland|Labrador|Yukon|Nunavut|Northwest\s*Territories|Maharashtra|Delhi|Karnataka|Tamil\s*Nadu|Gujarat|Rajasthan|Kerala|West\s*Bengal|Punjab|Haryana|Uttar\s*Pradesh|Madhya\s*Pradesh|Bihar|Odisha|Telangana|Andhra\s*Pradesh)/i;
+                        const addressTokens = /(Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Boulevard|Blvd\.?|Court|Ct\.?|Suite|Ste\.?|Apt\.?|Apartment|Unit|Flat|Floor|Block|Building|Bldg\.?|Tower|Sector|Colony|Nagar|Marg|Path|Way|Place|Pl\.?|Circle|Cir\.?|Highway|Hwy\.?|Close|Crescent|Cres\.?|Terrace|#\s*\d+)/i;
+                        const countryTokens = /(India|Canada|United\s*States|USA|U\.S\.A\.|United\s*Kingdom|UK|U\.K\.|Australia|New\s*Zealand|Singapore|Hong\s*Kong|UAE|Dubai)/i;
+                        
+                        // More specific name patterns
                         const isUppercaseNameLine = (txt: string) => {
                             // Two or more consecutive uppercase words (len>=2), excluding bank words
-                            const nameLike = /(?!RBC|ROYAL|BANK|VISA|MASTERCARD|CREDIT|CARD|STATEMENT|ION)\b[A-Z][A-Z'\-]{1,}(?:\s+(?!RBC|ROYAL|BANK|VISA|MASTERCARD|CREDIT|CARD|STATEMENT|ION)[A-Z][A-Z'\-]{1,})+/g;
+                            const nameLike = /(?!RBC|ROYAL|BANK|VISA|MASTERCARD|CREDIT|CARD|STATEMENT|ION|SUMMARY|BALANCE|TOTAL|AMOUNT|DATE|DESCRIPTION)\b[A-Z][A-Z'\-]{1,}(?:\s+(?!RBC|ROYAL|BANK|VISA|MASTERCARD|CREDIT|CARD|STATEMENT|ION|SUMMARY|BALANCE|TOTAL|AMOUNT|DATE|DESCRIPTION)[A-Z][A-Z'\-]{1,})+/g;
                             return nameLike.test(txt);
+                        };
+                        
+                        // Mixed case name pattern (e.g., "John Smith" or "Mary-Jane O'Connor")
+                        const isMixedCaseNameLine = (txt: string) => {
+                            const nameLike = /\b[A-Z][a-z]+(?:[\s\-'][A-Z]?[a-z]+)+\b/g;
+                            const matches = txt.match(nameLike);
+                            if (!matches) return false;
+                            // Filter out obvious non-names
+                            return matches.some(m => !excludeBankWords.test(m) && m.length > 4);
                         };
 
                         lines.forEach((line, lineIdx) => {
@@ -223,19 +268,23 @@ const App: React.FC = () => {
                             const maxH = Math.max(...line.map(i => i.height));
                             const yTop = line[0]?.yTop ?? 0;
                             const yCanvas = yTop - maxH;
-                            const topRegion = yCanvas < viewport.height * 0.25; // top 25% of page
+                            const topRegion = yCanvas < viewport.height * 0.30; // expanded to top 30% of page
                             const notBankHeader = !excludeBankWords.test(lineText);
-                            const looksLikeTxn = dateAnywhereRegex.test(lineText) || tableHeaderTokens.test(lineText) || transactionTokens.test(lineText) || moneyRegex.test(lineText);
+                            const looksLikeTxn = dateAnywhereRegex.test(lineText) && (tableHeaderTokens.test(lineText) || transactionTokens.test(lineText) || moneyRegex.test(lineText));
                             const hasLabel = labelTokens.test(lineText);
                             const looksLikeAddress = (
                                 isUppercaseNameLine(lineText) ||
+                                isMixedCaseNameLine(lineText) ||
                                 addressTokens.test(lineText) ||
                                 provinceAbbr.test(lineText) ||
                                 provinceNames.test(lineText) ||
                                 countryTokens.test(lineText) ||
-                                postalTestRegex.test(lineText)
+                                postalTestRegex.test(lineText) ||
+                                // Additional address indicators
+                                /\b\d{1,5}\s+[A-Za-z]/i.test(lineText) || // Street number + name
+                                /\b(P\.?O\.?\s*Box|Post\s*Office\s*Box)\b/i.test(lineText) // PO Box
                             );
-                            if (topRegion && notBankHeader && looksLikeAddress && lineText.trim().length > 1) {
+                            if (topRegion && notBankHeader && looksLikeAddress && !looksLikeTxn && lineText.trim().length > 1) {
                                 // Cover entire line range
                                 coverRange(0, lineText.length);
                             }
@@ -263,9 +312,22 @@ const App: React.FC = () => {
 
                             // 3) Card numbers: only in top region or with labels, and not on likely transaction lines
                             if ((topRegion || hasLabel) && !looksLikeTxn) {
+                                // Standard card regex
                                 cardRegex.lastIndex = 0;
                                 let m: RegExpExecArray | null;
                                 while ((m = cardRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                    cardFoundOnLine = true;
+                                }
+                                // Masked card format (****1234 or similar)
+                                maskedCardRegex.lastIndex = 0;
+                                while ((m = maskedCardRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                    cardFoundOnLine = true;
+                                }
+                                // Partial card ("ending in 1234")
+                                partialCardRegex.lastIndex = 0;
+                                while ((m = partialCardRegex.exec(lineText)) !== null) {
                                     coverRange(m.index, m.index + m[0].length);
                                     cardFoundOnLine = true;
                                 }
@@ -278,9 +340,14 @@ const App: React.FC = () => {
                                 while ((m = acctRegex.exec(lineText)) !== null) {
                                     coverRange(m.index, m.index + m[0].length);
                                 }
+                                // IBAN
+                                ibanRegex.lastIndex = 0;
+                                while ((m = ibanRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                }
                             }
 
-                            // 5) IFSC/PAN: only in top region or if explicitly present, and not on likely transaction lines
+                            // 5) IFSC/PAN/Aadhaar: only in top region or if explicitly present, and not on likely transaction lines
                             if ((topRegion || /IFSC/i.test(lineText)) && !looksLikeTxn) {
                                 ifscRegex.lastIndex = 0;
                                 let m: RegExpExecArray | null;
@@ -295,16 +362,86 @@ const App: React.FC = () => {
                                     coverRange(m.index, m.index + m[0].length);
                                 }
                             }
+                            if ((topRegion || /\bAadhaar\b/i.test(lineText)) && !looksLikeTxn) {
+                                aadharRegex.lastIndex = 0;
+                                let m: RegExpExecArray | null;
+                                while ((m = aadharRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                }
+                            }
+                            
+                            // 6) SSN/SIN/NIN: only with explicit labels
+                            if (/\b(SSN|Social\s*Security|SIN|Social\s*Insurance|NIN|National\s*Insurance)\b/i.test(lineText) && !looksLikeTxn) {
+                                ssnRegex.lastIndex = 0;
+                                let m: RegExpExecArray | null;
+                                while ((m = ssnRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                }
+                                sinRegex.lastIndex = 0;
+                                while ((m = sinRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                }
+                                ninRegex.lastIndex = 0;
+                                while ((m = ninRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                }
+                            }
+                            
+                            // 7) Email addresses: redact anywhere they appear in header region
+                            if (topRegion) {
+                                emailRegex.lastIndex = 0;
+                                let m: RegExpExecArray | null;
+                                while ((m = emailRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                }
+                            }
+                            // Email after label anywhere
+                            emailAfterLabelRegex.lastIndex = 0;
+                            {
+                                let m: RegExpExecArray | null;
+                                while ((m = emailAfterLabelRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                }
+                            }
+                            
+                            // 8) Phone numbers: with labels or in header
+                            if (topRegion || phoneTestRegex.test(lineText)) {
+                                phoneAfterLabelRegex.lastIndex = 0;
+                                let m: RegExpExecArray | null;
+                                while ((m = phoneAfterLabelRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                }
+                            }
+                            
+                            // 9) Date of birth after label
+                            dobAfterLabelRegex.lastIndex = 0;
+                            {
+                                let m: RegExpExecArray | null;
+                                while ((m = dobAfterLabelRegex.exec(lineText)) !== null) {
+                                    coverRange(m.index, m.index + m[0].length);
+                                }
+                            }
 
                             // If a card number was found, also redact likely NAME tokens (UPPERCASE words) on same line,
                             // excluding common bank words to avoid over-redaction.
                             if (cardFoundOnLine) {
-                                const nameLike = /\b(?!RBC|ROYAL|BANK|VISA|MASTERCARD|CREDIT|CARD|STATEMENT|ION)[A-Z][A-Z'\-]{1,}(?:\s+(?!RBC|ROYAL|BANK|VISA|MASTERCARD|CREDIT|CARD|STATEMENT|ION)[A-Z][A-Z'\-]{1,})+/g;
+                                const nameLike = /\b(?!RBC|ROYAL|BANK|VISA|MASTERCARD|CREDIT|CARD|STATEMENT|ION|SUMMARY|BALANCE|TOTAL)[A-Z][A-Z'\-]{1,}(?:\s+(?!RBC|ROYAL|BANK|VISA|MASTERCARD|CREDIT|CARD|STATEMENT|ION|SUMMARY|BALANCE|TOTAL)[A-Z][A-Z'\-]{1,})+/g;
                                 let nm: RegExpExecArray | null;
                                 while ((nm = nameLike.exec(lineText)) !== null) {
                                     // Skip if the token clearly contains excluded words
                                     if (excludeBankWords.test(nm[0])) continue;
                                     coverRange(nm.index, nm.index + nm[0].length);
+                                }
+                            }
+                            
+                            // 10) Mixed case names in header region (e.g., "John Smith")
+                            if (topRegion && notBankHeader && !looksLikeTxn && isMixedCaseNameLine(lineText)) {
+                                const nameLike = /\b[A-Z][a-z]+(?:[\s\-'][A-Z]?[a-z]+)+\b/g;
+                                let nm: RegExpExecArray | null;
+                                while ((nm = nameLike.exec(lineText)) !== null) {
+                                    if (!excludeBankWords.test(nm[0]) && nm[0].length > 4) {
+                                        coverRange(nm.index, nm.index + nm[0].length);
+                                    }
                                 }
                             }
                         });
@@ -472,6 +609,7 @@ const App: React.FC = () => {
             return <ProcessingIndicator step={processingStep} />;
         }
         if (showRedactionPreview) {
+            // RedactionPreview now renders as fullscreen overlay
             return <RedactionPreview 
                 pages={pagesForEdit}
                 onUpdate={setPagesForEdit}
@@ -485,23 +623,50 @@ const App: React.FC = () => {
         return <FileUpload onFileSelect={handleFileSelect} disabled={isProcessing} />;
     };
 
+    // When showing redaction preview, render it outside the normal layout (fullscreen)
+    if (showRedactionPreview) {
+        return (
+            <RedactionPreview 
+                pages={pagesForEdit}
+                onUpdate={setPagesForEdit}
+                onProceed={handleRedactionProceed}
+                onCancel={handleRedactionCancel}
+            />
+        );
+    }
 
     return (
-        <div className="min-h-screen flex flex-col items-center justify-center p-4 font-sans">
-            <main className="w-full max-w-2xl mx-auto bg-gray-50 p-6 sm:p-8 rounded-xl shadow-lg">
-                <Header />
-                <div className="mt-8">
-                    {renderContent()}
-                </div>
-                {error && !processedFile && (
-                    <div className="mt-4 text-center p-3 bg-red-100 border border-red-300 text-red-800 rounded-lg">
-                        <p><span className="font-bold">Error:</span> {error}</p>
+        <div className="min-h-screen flex flex-col bg-gradient-to-b from-gray-50 to-gray-100">
+            {/* Main Content */}
+            <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6">
+                <div className="w-full max-w-xl mx-auto">
+                    <Header />
+                    <div className="mt-6 sm:mt-8">
+                        {isProcessing ? (
+                            <ProcessingIndicator step={processingStep} />
+                        ) : processedFile ? (
+                            <DownloadArea 
+                                fileBlob={processedFile.blob} 
+                                fileName={processedFile.fileName} 
+                                transactions={processedFile.transactions} 
+                                onReset={handleReset} 
+                            />
+                        ) : (
+                            <FileUpload onFileSelect={handleFileSelect} disabled={isProcessing} />
+                        )}
                     </div>
-                )}
-                <PrivacyNotice />
+                    {error && !processedFile && (
+                        <div className="mt-4 text-center p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl">
+                            <p><span className="font-semibold">Error:</span> {error}</p>
+                        </div>
+                    )}
+                    <PrivacyNotice />
+                </div>
             </main>
-            <footer className="text-center mt-6 text-gray-500 text-sm">
-                <p>&copy; {new Date().getFullYear()} Secure Statement Converter. All rights reserved.</p>
+            
+            {/* Footer */}
+            <footer className="text-center py-4 text-gray-500 text-sm">
+                <p>&copy; {new Date().getFullYear()} Secure Statement Converter</p>
             </footer>
         </div>
     );

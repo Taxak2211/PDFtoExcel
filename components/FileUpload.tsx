@@ -7,9 +7,8 @@ interface FileUploadProps {
 }
 
 const FileUploadIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 15v-6m-3 3h6" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6" />
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-12 h-12 sm:w-16 sm:h-16 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
 );
 
@@ -61,10 +60,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, disabled }
         }
     };
     
-    const baseClasses = "relative flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-200 ease-in-out";
-    const disabledClasses = "bg-gray-200 border-gray-300 opacity-60 cursor-not-allowed";
-    const enabledClasses = "bg-white border-gray-300 hover:border-primary hover:bg-gray-50";
-    const dragOverClasses = "border-primary bg-blue-50";
+    const baseClasses = "relative flex flex-col items-center justify-center w-full min-h-[200px] sm:min-h-[240px] border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-200 ease-in-out";
+    const disabledClasses = "bg-gray-100 border-gray-300 opacity-60 cursor-not-allowed";
+    const enabledClasses = "bg-white border-gray-300 hover:border-blue-400 hover:bg-blue-50/50 active:scale-[0.99]";
+    const dragOverClasses = "border-blue-500 bg-blue-50 scale-[1.02]";
 
 
     return (
@@ -84,12 +83,20 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, disabled }
                 onChange={handleFileChange}
                 disabled={disabled}
             />
-            <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center">
+            <div className="flex flex-col items-center justify-center p-6 text-center">
                 <FileUploadIcon />
-                <p className="mb-2 text-sm text-gray-500">
-                    <span className="font-semibold">Click to upload</span> or drag and drop
+                <p className="mt-4 text-base font-medium text-gray-700">
+                    Upload PDF Statement
                 </p>
-                <p className="text-xs text-gray-500">PDF statement file only</p>
+                <p className="mt-1 text-sm text-gray-500 hidden sm:block">
+                    Drag and drop or click to browse
+                </p>
+                <p className="mt-1 text-sm text-gray-500 sm:hidden">
+                    Tap to select file
+                </p>
+                <div className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    Choose File
+                </div>
             </div>
         </div>
     );
