@@ -73,7 +73,15 @@ export const extractTransactionsFromImages = async (base64Images: string[]): Pro
                - Ignore headers, footers, summary sections, advertisements, and page numbers.
                - Ensure monetary values are parsed as numbers.
 
-            5. **Categorization:**
+            5. **Description Refinement:**
+               - The raw description often contains technical clutter (e.g., "UPI/DR/...", "WDL TFR", terminal IDs, "AT 01317 BAVLA").
+               - **Simplification is Key:** Do NOT return the full raw messy text. Extract only the entity name (Payee/Merchant) and relevant purpose.
+               - **Remove:** Transaction IDs, Reference numbers, "UPI/DR/" prefixes, "WDL TFR", branch codes, and repetitive bank jargon.
+               - **Example 1:** Raw "UPI/DR/600198997647/PARMARR U/YESB/q489502889/agar" -> Extract "PARMARR U" or "PARMARR".
+               - **Example 2:** Raw "UPI/DR/636805093448/JIO Post/YESB/paytm-5381/UPI" -> Extract "JIO Post".
+               - **Example 3:** Raw "POS 48293847 WALMART STORE 839" -> Extract "WALMART".
+
+            6. **Categorization:**
                - Add a "category" field for each transaction by classifying the description into one of:
                  Bills & Utilities, Car rental, EMI, Entertainment, Fees, Food & Dining, Gas, Groceries, Personal Care, Healthcare, Insurance, Investment, Rent, Shopping, Transportation, Travel, Other.
 
