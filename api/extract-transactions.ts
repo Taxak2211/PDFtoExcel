@@ -1,4 +1,4 @@
-import { extractTransactionsFromBase64Images } from '../server/extractTransactions';
+import { extractTransactionsFromBase64Images } from '../server/extractTransactions.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {

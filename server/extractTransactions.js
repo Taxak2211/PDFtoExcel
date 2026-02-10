@@ -1,15 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
-export type Transaction = {
-  date: string;
-  description: string;
-  debit?: number;
-  credit?: number;
-  balance?: number;
-  currency?: string;
-  category?: string;
-};
-
 const transactionSchema = {
   type: Type.OBJECT,
   properties: {
@@ -83,9 +73,9 @@ const allowedCategories = new Set([
   'Other',
 ]);
 
-function normalizeTransactions(data: any[]): Transaction[] {
-  return data.map((t: any) => {
-    const out: any = { ...t };
+function normalizeTransactions(data) {
+  return data.map((t) => {
+    const out = { ...t };
 
     if (out.currency && typeof out.currency === 'string') {
       out.currency = out.currency.trim().toUpperCase();
@@ -101,24 +91,24 @@ function normalizeTransactions(data: any[]): Transaction[] {
       }
     }
 
-    return out as Transaction;
+    return out;
   });
 }
 
-function isRateLimitError(err: unknown): boolean {
+function isRateLimitError(err) {
   if (!err) return false;
-  const anyErr: any = err;
+  const anyErr = err;
   const msg = String(anyErr?.message ?? '');
   const code = anyErr?.status ?? anyErr?.code;
   return code === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
 }
 
-async function sleep(ms: number) {
+async function sleep(ms) {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-async function withRetry<T>(fn: () => Promise<T>, maxAttempts: number): Promise<T> {
-  let lastErr: any;
+async function withRetry(fn, maxAttempts) {
+  let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
@@ -132,10 +122,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxAttempts: number): Promise<
   throw lastErr;
 }
 
-export async function extractTransactionsFromBase64Images(params: {
-  images: string[];
-  apiKey: string;
-}): Promise<Transaction[]> {
+export async function extractTransactionsFromBase64Images(params) {
   const { images, apiKey } = params;
 
   const ai = new GoogleGenAI({ apiKey });
@@ -180,15 +167,15 @@ Return the data as a valid JSON array of objects that strictly follows the provi
   const BATCH_SIZE = 3;
   const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
 
-  const batches: string[][] = [];
+  const batches = [];
   for (let i = 0; i < images.length; i += BATCH_SIZE) {
     batches.push(images.slice(i, i + BATCH_SIZE));
   }
 
-  const allTransactions: Transaction[] = [];
+  const allTransactions = [];
 
   for (const batch of batches) {
-    const imageParts = batch.map((img: string) => {
+    const imageParts = batch.map((img) => {
       const data = String(img).includes(',') ? String(img).split(',')[1] : String(img);
       return {
         inlineData: {
@@ -198,7 +185,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
       };
     });
 
-    let lastError: any;
+    let lastError;
 
     for (const modelName of CANDIDATE_MODELS) {
       try {

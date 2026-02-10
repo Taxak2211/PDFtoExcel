@@ -1,7 +1,7 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import { extractTransactionsFromBase64Images } from './server/extractTransactions';
+import { extractTransactionsFromBase64Images } from './server/extractTransactions.js';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
