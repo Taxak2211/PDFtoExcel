@@ -95,12 +95,19 @@ function normalizeTransactions(data) {
   });
 }
 
-function isRateLimitError(err) {
+function isRetryableError(err) {
   if (!err) return false;
   const anyErr = err;
   const msg = String(anyErr?.message ?? '');
   const code = anyErr?.status ?? anyErr?.code;
-  return code === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
+  return (
+    code === 429 ||
+    code === 503 ||
+    msg.includes('429') ||
+    msg.includes('503') ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('UNAVAILABLE')
+  );
 }
 
 async function sleep(ms) {
@@ -114,7 +121,7 @@ async function withRetry(fn, maxAttempts) {
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (!isRateLimitError(err) || attempt === maxAttempts) throw err;
+      if (!isRetryableError(err) || attempt === maxAttempts) throw err;
       const backoffMs = Math.min(10_000, 800 * 2 ** (attempt - 1));
       await sleep(backoffMs);
     }
@@ -168,9 +175,9 @@ Return the data as a valid JSON array of objects that strictly follows the provi
   const BATCH_SIZE = 3;
   const CONCURRENCY = 3;
   const CANDIDATE_MODELS = [
+    { name: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'minimal' } },
     { name: 'gemini-2.5-flash', thinkingConfig: { thinkingBudget: 512 } },
     { name: 'gemini-3-flash-preview', thinkingConfig: { thinkingLevel: 'low' } },
-    { name: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'minimal' } },
     { name: 'gemini-3.1-pro-preview', thinkingConfig: { thinkingLevel: 'low' } },
   ];
 
@@ -195,7 +202,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
 
     for (const { name: modelName, thinkingConfig } of CANDIDATE_MODELS) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(new Error(`Model ${modelName} timed out after 25s`)), 25_000);
+      const timeoutId = setTimeout(() => controller.abort(new Error(`Model ${modelName} timed out after 50s`)), 50_000);
       try {
         const response = await withRetry(
           () =>

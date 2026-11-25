@@ -2,7 +2,7 @@ import { Transaction } from '../types.ts';
 
 
 const CLIENT_BATCH_SIZE = 2;
-const CLIENT_CONCURRENCY = 3;
+const CLIENT_CONCURRENCY = 2;
 
 async function extractBatch(images: string[]): Promise<Transaction[]> {
     const response = await fetch('/api/extract-transactions', {
