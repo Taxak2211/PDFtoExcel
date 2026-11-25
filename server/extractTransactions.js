@@ -165,7 +165,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
   };
 
   const BATCH_SIZE = 3;
-  const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
+  const CANDIDATE_MODELS = ['gemini-3-flash-preview', 'gemini-3.1-pro-preview'];
 
   const batches = [];
   for (let i = 0; i < images.length; i += BATCH_SIZE) {
@@ -211,6 +211,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
         lastError = null;
         break;
       } catch (err) {
+        console.error(`Model ${modelName} failed:`, err?.message || err);
         lastError = err;
       }
     }
