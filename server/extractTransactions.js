@@ -137,7 +137,8 @@ Key requirements for diverse global format handling:
 1. **Layout & Terminology Adaptation:**
    - Identify columns for Date, Description, Debits (Withdrawals/Dr), Credits (Deposits/Cr), Balance, and Currency.
    - Handle variations in headers (e.g., "Narration", "Particulars" for description; "Value Date" vs "Txn Date").
-   - Specific handling for single-column amounts: split into credit/debit based on signs (+/-) or "Cr"/"Dr" indicators next to the amount.
+   - Specific handling for single-column amounts (e.g., credit card statements): positive charges are debit; negative amounts (e.g., -$50.00, ($50.00)), "Cr" indicators, refunds, or "PAYMENT RECEIVED" are credit (as a positive number) and NOT debit.
+   - Only populate balance if a running balance column is explicitly present; do not copy the transaction amount into balance.
 
 2. **Date Standardization:**
    - Handle international date formats (e.g., DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, DD-MMM-YYYY).
@@ -167,9 +168,9 @@ Return the data as a valid JSON array of objects that strictly follows the provi
   const BATCH_SIZE = 3;
   const CONCURRENCY = 3;
   const CANDIDATE_MODELS = [
+    { name: 'gemini-2.5-flash', thinkingConfig: { thinkingBudget: 512 } },
     { name: 'gemini-3-flash-preview', thinkingConfig: { thinkingLevel: 'low' } },
     { name: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'minimal' } },
-    { name: 'gemini-2.5-flash', thinkingConfig: { thinkingBudget: 0 } },
     { name: 'gemini-3.1-pro-preview', thinkingConfig: { thinkingLevel: 'low' } },
   ];
 
@@ -193,6 +194,8 @@ Return the data as a valid JSON array of objects that strictly follows the provi
     const modelErrors = [];
 
     for (const { name: modelName, thinkingConfig } of CANDIDATE_MODELS) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(new Error(`Model ${modelName} timed out after 25s`)), 25_000);
       try {
         const response = await withRetry(
           () =>
@@ -204,6 +207,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
                 responseSchema,
                 temperature: 0,
                 thinkingConfig,
+                abortSignal: controller.signal,
               },
             }),
           3
@@ -219,6 +223,8 @@ Return the data as a valid JSON array of objects that strictly follows the provi
         console.error(`Model ${modelName} failed:`, msg);
         modelErrors.push(`${modelName}: ${msg}`);
         lastError = err;
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 
