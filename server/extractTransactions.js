@@ -1,57 +1,8 @@
-import { GoogleGenAI, Type } from '@google/genai';
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-const transactionSchema = {
-  type: Type.OBJECT,
-  properties: {
-    date: {
-      type: Type.STRING,
-      description: 'Transaction date in YYYY-MM-DD format (ISO 8601).',
-    },
-    description: {
-      type: Type.STRING,
-      description: 'Detailed description of the transaction.',
-    },
-    debit: { type: Type.NUMBER, description: 'The debit amount (money spent).' },
-    credit: { type: Type.NUMBER, description: 'The credit amount (money received).' },
-    balance: {
-      type: Type.NUMBER,
-      description: 'The running balance after the transaction.',
-    },
-    currency: {
-      type: Type.STRING,
-      description: 'Currency code for the transaction (ISO 4217, e.g., INR, USD, CAD).',
-    },
-    category: {
-      type: Type.STRING,
-      description: 'Category of the transaction from the allowed set.',
-      enum: [
-        'Bills & Utilities',
-        'Car rental',
-        'EMI',
-        'Entertainment',
-        'Fees',
-        'Food & Dining',
-        'Gas',
-        'Groceries',
-        'Personal Care',
-        'Healthcare',
-        'Insurance',
-        'Investment',
-        'Rent',
-        'Shopping',
-        'Transportation',
-        'Travel',
-        'Other',
-      ],
-    },
-  },
-  required: ['date', 'description'],
-};
-
-const responseSchema = {
-  type: Type.ARRAY,
-  items: transactionSchema,
-};
+const CANDIDATE_MODELS = [
+  'qwen/qwen3.8-27b',
+];
 
 const allowedCategories = new Set([
   'Bills & Utilities',
@@ -97,15 +48,14 @@ function normalizeTransactions(data) {
 
 function isRetryableError(err) {
   if (!err) return false;
-  const anyErr = err;
-  const msg = String(anyErr?.message ?? '');
-  const code = anyErr?.status ?? anyErr?.code;
+  const msg = String(err?.message ?? '');
+  const code = err?.status ?? err?.code;
   return (
     code === 429 ||
     code === 503 ||
     msg.includes('429') ||
     msg.includes('503') ||
-    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('rate_limit') ||
     msg.includes('UNAVAILABLE')
   );
 }
@@ -129,57 +79,50 @@ async function withRetry(fn, maxAttempts) {
   throw lastErr;
 }
 
+const SYSTEM_PROMPT = `You are an expert financial data extraction assistant. Your task is to accurately extract transaction data from images of a bank or credit card statement.
+Analyze the provided images and extract all transactional line items. The images may be from banks in India, Canada, the US, or other regions.
+
+Key requirements:
+1. Layout & Terminology Adaptation:
+   - Identify columns for Date, Description, Debits (Withdrawals/Dr), Credits (Deposits/Cr), Balance, and Currency.
+   - Handle variations in headers (e.g., "Narration", "Particulars" for description; "Value Date" vs "Txn Date").
+   - Specific handling for single-column amounts (e.g., credit card statements): positive charges are "debit"; negative amounts (e.g., -$50.00, ($50.00)), "Cr" indicators, refunds, or "PAYMENT RECEIVED" are "credit" (as a positive number) and NOT "debit".
+   - Only populate "balance" if a running balance column is explicitly present; do not copy the transaction amount into "balance".
+
+2. Date Standardization:
+   - Handle international date formats (DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, DD-MMM-YYYY).
+   - Standardize all extracted dates to ISO 8601 format: YYYY-MM-DD.
+
+3. Currency Inference:
+   - Infer ISO 4217 currency code (e.g., INR, USD, CAD, GBP, EUR) from symbols or document context. If unknown, omit the field.
+
+4. Data Cleaning:
+   - Ignore headers, footers, summary sections, advertisements, and page numbers.
+   - Ensure debit, credit, and balance are numbers (omit if not applicable).
+
+5. Description Refinement:
+   - Extract only the entity name (Payee/Merchant) and relevant purpose.
+   - Remove transaction IDs, reference numbers, "UPI/DR/" prefixes, "WDL TFR", branch codes, and repetitive bank jargon.
+
+6. Categorization:
+   - Add a "category" field using one of:
+     Bills & Utilities, Car rental, EMI, Entertainment, Fees, Food & Dining, Gas, Groceries, Personal Care, Healthcare, Insurance, Investment, Rent, Shopping, Transportation, Travel, Other.
+
+Output format:
+Return ONLY a valid JSON object with a single key "transactions" containing an array of objects, each with:
+- "date" (string, YYYY-MM-DD, required)
+- "description" (string, required)
+- "debit" (number, optional)
+- "credit" (number, optional)
+- "balance" (number, optional)
+- "currency" (string, optional)
+- "category" (string, optional)`;
+
 export async function extractTransactionsFromBase64Images(params) {
   const { images, apiKey } = params;
 
-  const ai = new GoogleGenAI({ apiKey });
-
-  const textPart = {
-    text: `
-You are an expert financial data extraction assistant. Your task is to accurately extract transaction data from images of a bank statement.
-Analyze the following images and extract all transactional line items. The images may be from banks in **India, Canada, the US, or other regions**.
-
-Key requirements for diverse global format handling:
-
-1. **Layout & Terminology Adaptation:**
-   - Identify columns for Date, Description, Debits (Withdrawals/Dr), Credits (Deposits/Cr), Balance, and Currency.
-   - Handle variations in headers (e.g., "Narration", "Particulars" for description; "Value Date" vs "Txn Date").
-   - Specific handling for single-column amounts (e.g., credit card statements): positive charges are debit; negative amounts (e.g., -$50.00, ($50.00)), "Cr" indicators, refunds, or "PAYMENT RECEIVED" are credit (as a positive number) and NOT debit.
-   - Only populate balance if a running balance column is explicitly present; do not copy the transaction amount into balance.
-
-2. **Date Standardization:**
-   - Handle international date formats (e.g., DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, DD-MMM-YYYY).
-   - **Standardize all extracted dates to ISO 8601 format: YYYY-MM-DD**.
-   - Use the document context (e.g., currency symbols, bank address, or clear dates like 30/02) to resolve ambiguities (like 01/02/2024).
-
-3. **Currency Inference:**
-   - Infer currency when not explicitly labeled. Prefer ISO 4217 codes (e.g., INR, USD, CAD, GBP, EUR).
-   - Look for symbols (₹, $, C$, £) or text clues. If unknown, omit the field.
-
-4. **Data Cleaning:**
-   - Ignore headers, footers, summary sections, advertisements, and page numbers.
-   - Ensure monetary values are parsed as numbers.
-
-5. **Description Refinement:**
-   - **Simplification is Key:** Do NOT return the full raw messy text. Extract only the entity name (Payee/Merchant) and relevant purpose.
-   - **Remove:** Transaction IDs, Reference numbers, "UPI/DR/" prefixes, "WDL TFR", branch codes, and repetitive bank jargon.
-
-6. **Categorization:**
-   - Add a "category" field for each transaction by classifying the description into one of:
-     Bills & Utilities, Car rental, EMI, Entertainment, Fees, Food & Dining, Gas, Groceries, Personal Care, Healthcare, Insurance, Investment, Rent, Shopping, Transportation, Travel, Other.
-
-Return the data as a valid JSON array of objects that strictly follows the provided schema.
-`,
-  };
-
-  const BATCH_SIZE = 3;
-  const CONCURRENCY = 3;
-  const CANDIDATE_MODELS = [
-    { name: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'minimal' } },
-    { name: 'gemini-2.5-flash', thinkingConfig: { thinkingBudget: 512 } },
-    { name: 'gemini-3-flash-preview', thinkingConfig: { thinkingLevel: 'low' } },
-    { name: 'gemini-3.1-pro-preview', thinkingConfig: { thinkingLevel: 'low' } },
-  ];
+  const BATCH_SIZE = 2;
+  const CONCURRENCY = 2;
 
   const batches = [];
   for (let i = 0; i < images.length; i += BATCH_SIZE) {
@@ -188,43 +131,75 @@ Return the data as a valid JSON array of objects that strictly follows the provi
 
   async function extractBatch(batch) {
     const imageParts = batch.map((img) => {
-      const data = String(img).includes(',') ? String(img).split(',')[1] : String(img);
+      const str = String(img);
+      const url = str.startsWith('data:') ? str : `data:image/jpeg;base64,${str}`;
       return {
-        inlineData: {
-          mimeType: 'image/jpeg',
-          data,
-        },
+        type: 'image_url',
+        image_url: { url },
       };
     });
 
     let lastError;
     const modelErrors = [];
 
-    for (const { name: modelName, thinkingConfig } of CANDIDATE_MODELS) {
+    for (const modelName of CANDIDATE_MODELS) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(new Error(`Model ${modelName} timed out after 50s`)), 50_000);
+      const timeoutId = setTimeout(
+        () => controller.abort(new Error(`Model ${modelName} timed out after 50s`)),
+        50_000
+      );
+
       try {
-        const response = await withRetry(
-          () =>
-            ai.models.generateContent({
+        const content = await withRetry(async () => {
+          const response = await fetch(GROQ_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
               model: modelName,
-              contents: { parts: [textPart, ...imageParts] },
-              config: {
-                responseMimeType: 'application/json',
-                responseSchema,
-                temperature: 0,
-                thinkingConfig,
-                abortSignal: controller.signal,
-              },
+              messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Extract all transactions from these statement page images as a JSON object with a "transactions" array.',
+                    },
+                    ...imageParts,
+                  ],
+                },
+              ],
+              temperature: 0,
+              max_completion_tokens: 8192,
+              response_format: { type: 'json_object' },
             }),
-          3
-        );
+            signal: controller.signal,
+          });
 
-        if (!response.text) throw new Error('Empty text response from AI');
-        const parsed = JSON.parse(response.text.trim());
-        if (!Array.isArray(parsed)) throw new Error('AI response was not an array');
+          const payload = await response.json().catch(() => null);
+          if (!response.ok) {
+            const err = new Error(
+              payload?.error?.message || JSON.stringify(payload) || `HTTP ${response.status}`
+            );
+            err.status = response.status;
+            throw err;
+          }
 
-        return normalizeTransactions(parsed);
+          const text = payload?.choices?.[0]?.message?.content;
+          if (!text) throw new Error('Empty text response from Groq');
+          return text;
+        }, 3);
+
+        const parsed = JSON.parse(content.trim());
+        const list = Array.isArray(parsed) ? parsed : parsed?.transactions;
+        if (!Array.isArray(list)) {
+          throw new Error('Groq response did not contain a transactions array');
+        }
+
+        return normalizeTransactions(list);
       } catch (err) {
         const msg = err?.message || String(err);
         console.error(`Model ${modelName} failed:`, msg);
@@ -236,7 +211,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
     }
 
     if (lastError) {
-      throw new Error(`All Gemini models failed -> ${modelErrors.join(' | ')}`);
+      throw new Error(`All Groq models failed -> ${modelErrors.join(' | ')}`);
     }
     return [];
   }

@@ -22,11 +22,11 @@ export default defineConfig(({ mode }) => {
                   return next();
                 }
 
-                const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+                const apiKey = env.GROQ_API_KEY || process.env.GROQ_API_KEY;
                 if (!apiKey) {
                   res.statusCode = 500;
                   res.setHeader('Content-Type', 'application/json');
-                  res.end(JSON.stringify({ error: 'Missing GEMINI_API_KEY in .env.local' }));
+                  res.end(JSON.stringify({ error: 'Missing GROQ_API_KEY in .env.local' }));
                   return;
                 }
 

@@ -6,11 +6,11 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
       error:
-        'Server is missing GEMINI_API_KEY. Set it in Vercel Project Settings → Environment Variables (no VITE_ prefix).',
+        'Server is missing GROQ_API_KEY. Set it in Vercel Project Settings → Environment Variables (no VITE_ prefix).',
     });
   }
 
