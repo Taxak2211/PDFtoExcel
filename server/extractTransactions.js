@@ -165,7 +165,12 @@ Return the data as a valid JSON array of objects that strictly follows the provi
   };
 
   const BATCH_SIZE = 3;
-  const CANDIDATE_MODELS = ['gemini-3-flash-preview', 'gemini-3.1-pro-preview'];
+  const CANDIDATE_MODELS = [
+    'gemini-3-flash-preview',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-2.5-flash',
+    'gemini-3.1-pro-preview',
+  ];
 
   const batches = [];
   for (let i = 0; i < images.length; i += BATCH_SIZE) {
@@ -186,6 +191,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
     });
 
     let lastError;
+    const modelErrors = [];
 
     for (const modelName of CANDIDATE_MODELS) {
       try {
@@ -211,12 +217,16 @@ Return the data as a valid JSON array of objects that strictly follows the provi
         lastError = null;
         break;
       } catch (err) {
-        console.error(`Model ${modelName} failed:`, err?.message || err);
+        const msg = err?.message || String(err);
+        console.error(`Model ${modelName} failed:`, msg);
+        modelErrors.push(`${modelName}: ${msg}`);
         lastError = err;
       }
     }
 
-    if (lastError) throw lastError;
+    if (lastError) {
+      throw new Error(`All Gemini models failed -> ${modelErrors.join(' | ')}`);
+    }
   }
 
   return allTransactions;
