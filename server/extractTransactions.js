@@ -165,11 +165,12 @@ Return the data as a valid JSON array of objects that strictly follows the provi
   };
 
   const BATCH_SIZE = 3;
+  const CONCURRENCY = 3;
   const CANDIDATE_MODELS = [
-    'gemini-3-flash-preview',
-    'gemini-3.1-flash-lite-preview',
-    'gemini-2.5-flash',
-    'gemini-3.1-pro-preview',
+    { name: 'gemini-3-flash-preview', thinkingConfig: { thinkingLevel: 'low' } },
+    { name: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'minimal' } },
+    { name: 'gemini-2.5-flash', thinkingConfig: { thinkingBudget: 0 } },
+    { name: 'gemini-3.1-pro-preview', thinkingConfig: { thinkingLevel: 'low' } },
   ];
 
   const batches = [];
@@ -177,9 +178,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
     batches.push(images.slice(i, i + BATCH_SIZE));
   }
 
-  const allTransactions = [];
-
-  for (const batch of batches) {
+  async function extractBatch(batch) {
     const imageParts = batch.map((img) => {
       const data = String(img).includes(',') ? String(img).split(',')[1] : String(img);
       return {
@@ -193,7 +192,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
     let lastError;
     const modelErrors = [];
 
-    for (const modelName of CANDIDATE_MODELS) {
+    for (const { name: modelName, thinkingConfig } of CANDIDATE_MODELS) {
       try {
         const response = await withRetry(
           () =>
@@ -204,6 +203,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
                 responseMimeType: 'application/json',
                 responseSchema,
                 temperature: 0,
+                thinkingConfig,
               },
             }),
           3
@@ -213,9 +213,7 @@ Return the data as a valid JSON array of objects that strictly follows the provi
         const parsed = JSON.parse(response.text.trim());
         if (!Array.isArray(parsed)) throw new Error('AI response was not an array');
 
-        allTransactions.push(...normalizeTransactions(parsed));
-        lastError = null;
-        break;
+        return normalizeTransactions(parsed);
       } catch (err) {
         const msg = err?.message || String(err);
         console.error(`Model ${modelName} failed:`, msg);
@@ -227,7 +225,17 @@ Return the data as a valid JSON array of objects that strictly follows the provi
     if (lastError) {
       throw new Error(`All Gemini models failed -> ${modelErrors.join(' | ')}`);
     }
+    return [];
   }
 
-  return allTransactions;
+  const batchResults = new Array(batches.length);
+  for (let i = 0; i < batches.length; i += CONCURRENCY) {
+    const chunk = batches.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(chunk.map((batch) => extractBatch(batch)));
+    for (let j = 0; j < results.length; j++) {
+      batchResults[i + j] = results[j];
+    }
+  }
+
+  return batchResults.flat();
 }
